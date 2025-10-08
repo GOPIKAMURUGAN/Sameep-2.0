@@ -142,6 +142,7 @@ function CategoryList({ parentId = null }) {
           setRefresh((prev) => !prev);
         }}
         initialData={editing}
+        parentId={editing?.parent || null}
       />
 
       {/* Category Grid */}

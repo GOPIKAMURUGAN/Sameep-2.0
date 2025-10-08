@@ -34,7 +34,7 @@ exports.getCategories = async (req, res) => {
 // optional parentId in body
 exports.createCategory = async (req, res) => {
   try {
-    const { name, parentId } = req.body;
+    const { name, parentId} = req.body;
     const imageFile = req.file;
 
     if (!name) return res.status(400).json({ message: "Name required" });
@@ -47,7 +47,9 @@ exports.createCategory = async (req, res) => {
         .status(400)
         .json({ message: "Category already exists under this parent" });
 
-    const imageUrl = `/${imageFile.path.replace(/\\/g, "/")}`; // store relative path like /uploads/123.png
+    // allow optional image
+const imageUrl = imageFile ? `/${imageFile.path.replace(/\\/g, "/")}` : "";
+ // store relative path like /uploads/123.png
 
     const category = new Category({
       name,

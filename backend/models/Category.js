@@ -5,10 +5,22 @@ const CategorySchema = new mongoose.Schema({
   imageUrl: { type: String, default: '' },
   parent: { type: mongoose.Schema.Types.ObjectId, ref: 'Category', default: null },
   price: { type: Number, default: null },
+  freeText: { type: String, default: "" },
   terms: { type: String, default: '' },
   visibleToUser: { type: Boolean, default: false },
   visibleToVendor: { type: Boolean, default: false },
   sequence: { type: Number, default: 0 }, // ordering within siblings
+  seoKeywords: String,
+  categoryType: {
+      type: String,
+      enum: ["Products", "Services", "Products & Services"],
+      default: "Products",
+    },
+    availableForCart: { type: Boolean, default: false },
+    postRequestsDeals: { type: Boolean, default: false },
+  loyaltyPoints: { type: Boolean, default: false },
+  linkAttributesPricing: { type: Boolean, default: false },
+  freeTexts: { type: [String], default: Array(10).fill("") },
   createdAt: { type: Date, default: Date.now },
 });
 

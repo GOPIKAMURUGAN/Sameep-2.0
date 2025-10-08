@@ -376,6 +376,89 @@ router.put("/:vendorId/prices", async (req, res) => {
   }
 });
 
+router.get("/:vendorId/preview/:categoryId", async (req, res) => {
+  try {
+    const { vendorId, categoryId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(vendorId) || !mongoose.Types.ObjectId.isValid(categoryId)) {
+      return res.status(400).json({ message: "Invalid IDs" });
+    }
+
+    const vendor = await Vendor.findById(vendorId).lean();
+    if (!vendor) return res.status(404).json({ message: "Vendor not found" });
+
+    // Load all categories
+    const allCategories = await Category.find({}, { name: 1, parent: 1, price: 1, imageUrl: 1, terms: 1, sequence: 1 })
+      .sort({ sequence: 1, createdAt: -1 })
+      .lean();
+
+    // Map categories by ID
+    const catMap = {};
+    allCategories.forEach((c) => {
+      if (!c?._id) return;
+      catMap[c._id.toString()] = { ...c, children: [] };
+    });
+
+    // Link children to parents
+    allCategories.forEach((c) => {
+      if (c?.parent) {
+        const parent = catMap[c.parent.toString()];
+        if (parent) parent.children.push(catMap[c._id.toString()]);
+      }
+    });
+
+    // Load vendor-specific prices
+    const vendorPricings = await VendorPrice.find({ vendorId }, { categoryId: 1, price: 1 }).lean();
+    const vendorPricingMap = {};
+    vendorPricings.forEach((p) => {
+      vendorPricingMap[p.categoryId.toString()] = p.price;
+    });
+
+    // Find root node starting from requested category
+    let rootNode = catMap[categoryId.toString()];
+    while (rootNode?.parent) {
+      rootNode = catMap[rootNode.parent.toString()];
+    }
+
+    if (!rootNode) return res.status(404).json({ message: "No root category found" });
+
+    // Recursive function to attach vendor prices
+    const attachPrices = (node) => {
+      const vendorPrice = vendorPricingMap[node._id.toString()] ?? node.price;
+      return {
+        id: node._id,
+        name: node.name,
+        price: node.price,
+        vendorPrice,
+        imageUrl: node.imageUrl || null,
+        terms: node.terms || "",
+        children: (node.children || []).map(attachPrices),
+      };
+    };
+
+    const tree = attachPrices(rootNode);
+
+    // Get vendor location
+    const location = await VendorLocation.findOne({ vendorId }).lean();
+
+    res.json({
+      vendor: {
+        id: vendor._id,
+        contactName: vendor.contactName,
+        businessName: vendor.businessName,
+        phone: vendor.phone,
+        location: location || null,
+        businessHours: vendor.businessHours || [],
+      },
+      categories: tree,
+    });
+  } catch (err) {
+    console.error("Error fetching vendor preview:", err);
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+
 
 /**
  * CREATE vendor
@@ -419,82 +502,7 @@ router.post("/", async (req, res) => {
  */
 // GET vendor preview with all nested subcategories
 // GET vendor preview (optimized)
-router.get("/:vendorId/preview/:categoryId", async (req, res) => {
-  try {
-    const { vendorId, categoryId } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(vendorId) || !mongoose.Types.ObjectId.isValid(categoryId)) {
-      return res.status(400).json({ message: "Invalid IDs" });
-    }
-
-    // 1. Fetch vendor
-    const vendor = await Vendor.findById(vendorId).lean();
-    if (!vendor) return res.status(404).json({ message: "Vendor not found" });
-
-    // 2. Fetch all categories once
-    const allCategories = await Category.find().sort({ sequence: 1, createdAt: -1 }).lean();
-
-    // 3. Build category map
-    const catMap = {};
-    allCategories.forEach((c) => { catMap[c._id.toString()] = { ...c, children: [] }; });
-
-    // 4. Build tree structure (parent → children)
-    allCategories.forEach((c) => {
-      if (c.parent) {
-        const parent = catMap[c.parent.toString()];
-        if (parent) parent.children.push(catMap[c._id.toString()]);
-      }
-    });
-
-    // 5. Fetch vendor-specific prices in one query
-    const vendorPricings = await VendorCategoryPrice.find({ vendorId }).lean();
-    const vendorPricingMap = {};
-    vendorPricings.forEach((p) => {
-      vendorPricingMap[p.categoryId.toString()] = p.price;
-    });
-
-    // 6. Find root category for this preview
-    let root = catMap[categoryId];
-    while (root?.parent) {
-      root = catMap[root.parent.toString()];
-    }
-    if (!root) return res.status(404).json({ message: "Root category not found" });
-
-    // 7. Attach vendorPrice + transform recursively
-    function attachPrices(node) {
-      const vendorPrice = vendorPricingMap[node._id.toString()] ?? node.price;
-
-      return {
-        id: node._id,
-        name: node.name,
-        price: node.price,
-        vendorPrice,
-        imageUrl: node.imageUrl || null,
-        terms: node.terms || "",
-        children: node.children.map(attachPrices),
-      };
-    }
-
-    const tree = attachPrices(root);
-
-    // 8. Vendor location
-    const location = await VendorLocation.findOne({ vendorId }).lean();
-
-    res.json({
-      vendor: {
-        id: vendor._id,
-        contactName: vendor.contactName,
-        businessName: vendor.businessName,
-        phone: vendor.phone,
-        location: location || null,
-      },
-      categories: tree,
-    });
-  } catch (err) {
-    console.error("Error fetching vendor preview:", err);
-    res.status(500).json({ message: "Server error", error: err.message });
-  }
-});
 
 // GET vendor location (with nearbyLocations)
 router.get("/location/vendor/:vendorId", async (req, res) => {
@@ -532,22 +540,26 @@ router.get("/:vendorId/location", async (req, res) => {
 router.put("/:vendorId/location", async (req, res) => {
   try {
     const { vendorId } = req.params;
-    if (!mongoose.Types.ObjectId.isValid(vendorId)) {
-      return res.status(400).json({ message: "Invalid vendorId" });
-    }
-
     const { lat, lng, address = "", nearbyLocations } = req.body;
 
     if (lat == null || lng == null) {
       return res.status(400).json({ message: "Latitude and longitude are required" });
     }
 
-    // Ensure nearbyLocations is always an array of strings if provided
-    const safeNearby = Array.isArray(nearbyLocations) ? nearbyLocations.map(String) : [];
+    // Fetch current vendor location
+    let vendorLocation = await VendorLocation.findOne({ vendorId });
+    if (!vendorLocation) {
+      vendorLocation = new VendorLocation({ vendorId, nearbyLocations: [] });
+    }
 
-    // Reverse geocode safely (Nominatim)
-    let area = "";
-    let city = "";
+    // Preserve existing nearbyLocations if not provided
+    const safeNearby =
+      Array.isArray(nearbyLocations) && nearbyLocations.length > 0
+        ? nearbyLocations.map(String)
+        : vendorLocation.nearbyLocations;
+
+    // Reverse geocode
+    let area = "", city = "";
     try {
       const response = await fetch(
         `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}`
@@ -555,29 +567,23 @@ router.put("/:vendorId/location", async (req, res) => {
       if (response.ok) {
         const data = await response.json();
         area = data.address?.suburb || data.address?.neighbourhood || data.address?.hamlet || "";
-        city =
-          data.address?.city ||
-          data.address?.town ||
-          data.address?.village ||
-          data.address?.municipality ||
-          "";
-      } else {
-        console.warn("Nominatim returned non-ok response", response.status);
+        city = data.address?.city || data.address?.town || data.address?.village || data.address?.municipality || "";
       }
     } catch (err) {
       console.error("Reverse geocode failed", err);
     }
 
-    // Compose single human-friendly string
-    // Compose single human-friendly string
-const areaCity = [area || city, city].filter(Boolean).join(", ");
+    const areaCity = [area || city, city].filter(Boolean).join(", ");
 
+    vendorLocation.lat = lat;
+    vendorLocation.lng = lng;
+    vendorLocation.address = address;
+    vendorLocation.area = area;
+    vendorLocation.city = city;
+    vendorLocation.areaCity = areaCity;
+    vendorLocation.nearbyLocations = safeNearby;
 
-    const vendorLocation = await VendorLocation.findOneAndUpdate(
-      { vendorId },
-      { vendorId, lat, lng, address, area, city, areaCity, nearbyLocations: safeNearby },
-      { upsert: true, new: true }
-    );
+    await vendorLocation.save();
 
     res.json({ success: true, location: vendorLocation });
   } catch (err) {
@@ -585,6 +591,7 @@ const areaCity = [area || city, city].filter(Boolean).join(", ");
     res.status(500).json({ message: "Server error", error: err.message });
   }
 });
+
 
 
 
@@ -645,6 +652,36 @@ router.delete("/vendor-locations/:vendorId/nearby/:index", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// PUT /api/vendors/:id/business-hours
+// PUT /api/vendors/:id/business-hours
+router.put("/:id/business-hours", async (req, res) => {
+  try {
+    const { businessHours } = req.body;
+    const { id } = req.params;
+
+    if (!businessHours) {
+      return res.status(400).json({ message: "businessHours is required" });
+    }
+
+    // 1️⃣ Fetch the vendor first
+    const vendor = await Vendor.findById(id).lean();
+    if (!vendor) return res.status(404).json({ message: "Vendor not found" });
+
+    // 2️⃣ Update ONLY businessHours
+    await Vendor.findByIdAndUpdate(id, { $set: { businessHours } }, { new: true });
+
+    // 3️⃣ Fetch vendor location separately
+    const location = await VendorLocation.findOne({ vendorId: id }).lean();
+
+    // 4️⃣ Return vendor + location
+    res.json({ ...vendor, businessHours, location: location || null });
+  } catch (err) {
+    console.error("PUT /business-hours error:", err);
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
 
 
 

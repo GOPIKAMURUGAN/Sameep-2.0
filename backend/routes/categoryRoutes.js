@@ -18,7 +18,7 @@ function logApi(req, res, label) {
 router.post("/", async (req, res, next) => {
   logApi(req, res, "create-category");
   try {
-    const { name, parentId, price, terms, visibleToUser, visibleToVendor } = req.body;
+    const { name, parentId, price, terms, visibleToUser, visibleToVendor, freeText, seoKeywords, categoryType, addToCart} = req.body;
 
     if (!name) return res.status(400).json({ message: "Name is required" });
 
@@ -26,6 +26,10 @@ router.post("/", async (req, res, next) => {
       const exists = await Category.findOne({ name, parent: null });
       if (exists) return res.status(400).json({ message: "Category already exists" });
     }
+    if (!parentId) {
+  categoryData.seoKeywords = seoKeywords || "";
+}
+
 
     const parsedSequence = (() => {
       const seq = Number(req.body.sequence);
@@ -38,16 +42,44 @@ router.post("/", async (req, res, next) => {
       return Number.isNaN(n) ? null : n;
     })();
 
-    const category = new Category({
-      name,
-      imageUrl: req.file ? `/uploads/${req.file.filename}` : undefined,
-      parent: parentId || null,
-      price: parsedPrice,
-      terms,
-      visibleToUser: String(visibleToUser) === "true",
-      visibleToVendor: String(visibleToVendor) === "true",
-      sequence: parsedSequence,
-    });
+
+    const categoryData = {
+  name,
+  imageUrl: req.file ? `/uploads/${req.file.filename}` : undefined,
+  parent: parentId || null,
+  sequence: parsedSequence,
+  terms,
+  visibleToUser: String(visibleToUser) === "true",
+  visibleToVendor: String(visibleToVendor) === "true",
+  categoryType: categoryType || "Products",
+  addToCart: categoryType === "Products" ? addToCart === "true" || addToCart === true : false,
+
+};
+
+// Only for subcategories (parentId exists)
+if (parentId) {
+  categoryData.price = parsedPrice;
+  categoryData.freeText = freeText || "";
+}
+else {
+  // Only for root categories
+  categoryData.seoKeywords = seoKeywords || "";
+}
+
+if (!parentId) {
+  categoryData.postRequestsDeals = req.body.postRequestsDeals === "true";
+  categoryData.loyaltyPoints = req.body.loyaltyPoints === "true";
+  categoryData.linkAttributesPricing = req.body.linkAttributesPricing === "true";
+
+  // 10 free texts
+  categoryData.freeTexts = [];
+  for (let i = 0; i < 10; i++) {
+    categoryData.freeTexts.push(req.body[`freeText${i}`] || "");
+  }
+}
+
+
+const category = new Category(categoryData);
 
     const saved = await category.save();
     console.log("💾 Saved category:", { id: saved._id.toString(), name: saved.name });
@@ -73,6 +105,35 @@ router.get("/", async (req, res, next) => {
     next(err);
   }
 });
+router.post("/", upload.single("image"), async (req, res) => {
+  try {
+    const { name, parentId, price, terms, visibleToUser, visibleToVendor } = req.body;
+    if (!name) return res.status(400).json({ message: "Name required" });
+
+    const parent = parentId && parentId !== "" ? parentId : null;
+
+    const exists = await Category.findOne({ name, parent });
+    if (exists) return res.status(400).json({ message: "Category exists under this parent" });
+
+    const category = new Category({
+      name,
+      parent,
+      price: price ? Number(price) : null,
+      terms: terms || "",
+      visibleToUser: visibleToUser === "true" || visibleToUser === true,
+      visibleToVendor: visibleToVendor === "true" || visibleToVendor === true,
+      imageUrl: req.file ? `/${req.file.path.replace(/\\/g, "/")}` : "",
+      freeTexts: Array(10).fill(""),
+    });
+
+    await category.save();
+    res.json(category);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: err.message || "Server error" });
+  }
+});
+
 
 /* ---------------- UPDATE CATEGORY ---------------- */
 router.put("/:id", upload.single("image"), async (req, res, next) => {
@@ -81,18 +142,48 @@ router.put("/:id", upload.single("image"), async (req, res, next) => {
     const category = await Category.findById(req.params.id);
     if (!category) return res.status(404).json({ message: "Category not found" });
 
-    const { name, price, terms, visibleToUser, visibleToVendor } = req.body;
+    const { name, price, terms, visibleToUser, visibleToVendor, freeText, seoKeywords, categoryType, addToCart} = req.body;
 
     if (name !== undefined) category.name = name;
-    category.price = price === "" || price === undefined ? null : Number(price);
-    category.terms = terms !== undefined ? terms : category.terms;
-    category.visibleToUser = visibleToUser === "true";
-    category.visibleToVendor = visibleToVendor === "true";
 
-    if (req.body.sequence !== undefined) {
-      category.sequence = req.body.sequence === "" ? 0 : Number(req.body.sequence);
-    }
-    if (req.file) category.imageUrl = `/uploads/${req.file.filename}`;
+category.terms = terms !== undefined ? terms : category.terms;
+category.visibleToUser = visibleToUser === "true";
+category.visibleToVendor = visibleToVendor === "true";
+
+// Only update for subcategories
+if (category.parent) {
+  category.price = price === "" || price === undefined ? null : Number(price);
+  category.freeText = freeText !== undefined ? freeText : category.freeText;
+}
+if (!category.parent && seoKeywords !== undefined) {
+  category.seoKeywords = seoKeywords;
+}
+if (categoryType !== undefined) category.categoryType = categoryType;
+if (category.categoryType === "Products") {
+  category.addToCart = addToCart === "true" || addToCart === true;
+} else {
+  category.addToCart = false;
+}
+
+if (!category.parent) {
+  category.postRequestsDeals = req.body.postRequestsDeals === "true";
+  category.loyaltyPoints = req.body.loyaltyPoints === "true";
+  category.linkAttributesPricing = req.body.linkAttributesPricing === "true";
+
+  // update free texts
+  category.freeTexts = [];
+  for (let i = 0; i < 10; i++) {
+    category.freeTexts.push(req.body[`freeText${i}`] || "");
+  }
+}
+
+
+if (req.body.sequence !== undefined) {
+  category.sequence = req.body.sequence === "" ? 0 : Number(req.body.sequence);
+}
+
+if (req.file) category.imageUrl = `/uploads/${req.file.filename}`;
+
 
     await category.save();
     res.json(category);

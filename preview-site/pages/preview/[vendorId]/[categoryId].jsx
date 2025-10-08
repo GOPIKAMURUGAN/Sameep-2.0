@@ -8,14 +8,13 @@ import AboutSection from "../../../components/AboutSection";
 import ContactSection from "../../../components/ContactSection";
 import Footer from "../../../components/Footer";
 import FullPageShimmer from "../../../components/FullPageShimmer";
+
 export default function PreviewPage() {
   const router = useRouter();
   const { vendorId, categoryId, lat, lng, homeLocs } = router.query;
 
-  // parse
   const parsedHomeLocations = homeLocs ? JSON.parse(homeLocs) : [];
 
-  // ✅ State hooks
   const [vendor, setVendor] = useState(null);
   const [categoryTree, setCategoryTree] = useState(null);
   const [loadingVendor, setLoadingVendor] = useState(true);
@@ -25,32 +24,37 @@ export default function PreviewPage() {
   const [location, setLocation] = useState(null);
   const [cardSelections, setCardSelections] = useState({});
 
-
-  // ✅ Combined loading
   const loading = loadingVendor || loadingCategories;
 
   // ----------------- Fetch vendor & categories -----------------
   useEffect(() => {
     if (!router.isReady || !vendorId) return;
 
-    // fetch vendor & category tree
     const fetchData = async () => {
       setLoadingVendor(true);
       setLoadingCategories(true);
       try {
         const [vendorRes, categoryRes, locationRes] = await Promise.all([
           fetch(`/api/vendors/${vendorId}`, { cache: "no-store" }),
-          fetch(`/api/vendors/${vendorId}/preview/${categoryId}`, {
-            cache: "no-store",
-          }),
+          fetch(`/api/vendors/${vendorId}/preview/${categoryId}`, { cache: "no-store" }),
           fetch(`/api/vendors/${vendorId}/location`, { cache: "no-store" }),
         ]);
+
         const vendorData = await vendorRes.json();
         const categoryData = await categoryRes.json();
-        const locationData = await locationRes.json().catch(() => null);
+        let locationData = null;
+
+        try {
+          locationData = await locationRes.json();
+        } catch (err) {
+          locationData = null;
+        }
 
         setVendor(vendorData);
-        setCategoryTree(categoryData.categories);
+        console.log("CategoryData from API:", categoryData);
+
+        setCategoryTree(categoryData.categories || null);
+
 
         if (locationData?.success) {
           setLocation(locationData.location);
@@ -58,7 +62,7 @@ export default function PreviewPage() {
           setLocation(vendorData.location);
         }
       } catch (err) {
-        setError(err.message);
+        setError(err.message || "Something went wrong");
       } finally {
         setLoadingVendor(false);
         setLoadingCategories(false);
@@ -69,253 +73,193 @@ export default function PreviewPage() {
   }, [router.isReady, vendorId, categoryId]);
 
   // ----------------- Helpers -----------------
-  const hasChildren = (node) =>
-    node && Array.isArray(node.children) && node.children.length > 0;
+  const hasChildren = (node) => node?.children?.length > 0;
 
   const containsId = (node, id) => {
     if (!node || !id) return false;
     if (node.id === id) return true;
-    if (!Array.isArray(node.children)) return false;
-    return node.children.some((c) => containsId(c, id));
+    return node.children?.some((c) => containsId(c, id)) || false;
   };
 
   // ----------------- Card Component -----------------
-  // ----------------- Card Component -----------------
-const ParentWithSizesCard = ({ node, selection, onSelectionChange, onLeafSelect }) => {
-  if (!node) return null;
+  const ParentWithSizesCard = ({ node, selection, onSelectionChange, onLeafSelect }) => {
+    if (!node) return null;
 
-  const getDeepestFirstChild = (n) => {
-    if (!n?.children?.length) return n;
-    return getDeepestFirstChild(n.children[0]);
-  };
+    const getDeepestFirstChild = (n) => (!n?.children?.length ? n : getDeepestFirstChild(n.children[0]));
 
-  // ✅ Read selection from props (not local state)
-  const selectedParent = selection?.parent || node.children?.[0] || node;
-  const selectedChild =
-    selection?.child || getDeepestFirstChild(selectedParent);
+    const selectedParent = selection?.parent || node.children?.[0] || node;
+    const selectedChild = selection?.child || getDeepestFirstChild(selectedParent);
 
-  const displayNode = selectedChild || selectedParent;
-
-  return (
-    <section style={{ marginBottom: 28 }}>
-      <div
-        style={{
-          border: "1px solid #e2e8f0",
-          borderRadius: 16,
-          padding: 20,
-          background: "#fff",
-          width: 300,
-          minHeight: 400,
-          boxShadow: "0 1px 6px rgba(0,0,0,0.08)",
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "space-between",
-          fontFamily: "Poppins, sans-serif",
-        }}
-      >
-        <h2 style={{ margin: "0 0 10px", fontSize: 16, fontWeight: 600 }}>
-          {node.name}
-        </h2>
-
-        {displayNode?.imageUrl && (
-          <img
-            src={
-              displayNode.imageUrl.startsWith("http")
-                ? displayNode.imageUrl
-                : `http://localhost:5000${displayNode.imageUrl}`
-            }
-            alt={displayNode.name}
-            style={{
-              width: 50,
-              height: 50,
-              borderRadius: 8,
-              objectFit: "cover",
-              marginBottom: 12,
-            }}
-          />
-        )}
-
-        {displayNode && (
-          <div style={{ marginBottom: 12 }}>
-            {displayNode.price && (
-              <p style={{ color: "#059669", fontWeight: 600, margin: 0 }}>
-                ₹ {displayNode.price}
-              </p>
-            )}
-            {displayNode.terms && (
-              <ul style={{ marginTop: 4, paddingLeft: 18 }}>
-                {displayNode.terms.split(",").map((t, i) => (
-                  <li key={i} style={{ fontSize: 13, color: "#4b5563" }}>
-                    {t.trim()}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-
-        {/* ✅ Parent Buttons */}
-      {node.children?.length > 0 && (
-  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
-    {node.children.map((opt) => {
-      const leaf = getDeepestFirstChild(opt); // always get first leaf
-      const isSelectedParent = selectedParent?.id === opt.id;
-      return (
-        <button
-          key={opt.id}
-          type="button"
-          onClick={() => {
-            onSelectionChange?.(opt, leaf); // update parent state
-            onLeafSelect?.(leaf);           // notify PreviewPage
-          }}
-          style={{
-            padding: "6px 12px",
-            borderRadius: 999,
-            border: isSelectedParent ? "2px solid #059669" : "1px solid #d1d5db",
-            background: isSelectedParent ? "#059669" : "#f9fafb",
-            color: isSelectedParent ? "#fff" : "#111827",
-            cursor: "pointer",
-            fontSize: 13,
-          }}
-        >
-          {opt.name}
-        </button>
-      );
-    })}
-  </div>
-)}
-
-
-            
-
-        {/* ✅ Child Buttons */}
-        {selectedParent?.children?.length > 0 && (
-  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
-    {selectedParent.children.map((child) => (
-      <button
-        key={child.id}
-        type="button"
-        onClick={() => {
-          onSelectionChange?.(selectedParent, child); // ✅ fully controlled
-          onLeafSelect?.(child);                      // notify PreviewPage
-        }}
-        style={{
-          padding: "6px 12px",
-          borderRadius: 999,
-          border: selectedChild?.id === child.id ? "2px solid #2563eb" : "1px solid #d1d5db",
-          background: selectedChild?.id === child.id ? "#2563eb" : "#f9fafb",
-          color: selectedChild?.id === child.id ? "#fff" : "#111827",
-          cursor: "pointer",
-          fontSize: 13,
-        }}
-      >
-        {child.name}
-      </button>
-    ))}
-  </div>
-)}
-
-
-        <button
-          onClick={() => alert(`Booking ${displayNode?.name}`)}
-          style={{
-            marginTop: "auto",
-            width: "100%",
-            padding: "10px 14px",
-            borderRadius: 28,
-            border: "none",
-            background: "rgb(245 158 11)",
-            color: "#111827",
-            fontWeight: 600,
-            cursor: "pointer",
-          }}
-        >
-          Book Now
-        </button>
-      </div>
-    </section>
-  );
-};
-
-
-  // ----------------- Render tree -----------------
-  // ----------------- Render tree -----------------
-const renderTree = (root) => {
-  if (!root || !Array.isArray(root.children)) return null;
-
-  return root.children.map((lvl1) => {
-    const hasNested =
-      lvl1.children && lvl1.children.some((c) => hasChildren(c));
-
-    if (hasNested) {
-      const visibleChildren = lvl1.children;
-      if (!visibleChildren || visibleChildren.length === 0) return null;
-
-      return (
-        <section key={lvl1.id} style={{ marginBottom: 28 }}>
-          <h2
-            style={{
-              margin: "0 0 12px",
-              textTransform: "uppercase",
-              fontSize: 18,
-              fontWeight: 600,
-            }}
-          >
-            {lvl1.name}
-          </h2>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
-            {visibleChildren.map((child) => (
-              <ParentWithSizesCard
-                key={child.id}
-                node={child}
-                selection={cardSelections[child.id]}
-                onSelectionChange={(parent, leaf) =>
-                  setCardSelections((prev) => ({
-                    ...prev,
-                    [child.id]: { parent, child: leaf },
-                  }))
-                }
-                onLeafSelect={(leaf) => {
-                  console.log("leaf selected (visibleChildren):", leaf);
-                  setSelectedLeaf(leaf);
-                }}
-              />
-            ))}
-          </div>
-        </section>
-      );
-    }
+    const displayNode = selectedChild || selectedParent;
 
     return (
-      <div
-        key={lvl1.id}
-        style={{
-          display: "inline-flex",
-          verticalAlign: "top",
-          marginRight: 16,
-          marginBottom: 28,
-        }}
-      >
-        <ParentWithSizesCard
-          key={lvl1.id}
-          node={lvl1}
-          selection={cardSelections[lvl1.id]}
-          onSelectionChange={(parent, leaf) =>
-            setCardSelections((prev) => ({
-              ...prev,
-              [lvl1.id]: { parent, child: leaf },
-            }))
-          }
-          onLeafSelect={(leaf) => {
-            console.log("leaf selected (lvl1):", leaf);
-            setSelectedLeaf(leaf);
+      <section style={{ marginBottom: 28 }}>
+        <div
+          style={{
+            border: "1px solid #e2e8f0",
+            borderRadius: 16,
+            padding: 20,
+            background: "#fff",
+            width: 300,
+            minHeight: 400,
+            boxShadow: "0 1px 6px rgba(0,0,0,0.08)",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "space-between",
+            fontFamily: "Poppins, sans-serif",
           }}
-        />
-      </div>
-    );
-  });
-};
+        >
+          <h2 style={{ margin: "0 0 10px", fontSize: 16, fontWeight: 600 }}>{node.name}</h2>
 
+          {displayNode?.imageUrl && (
+            <img
+              src={displayNode.imageUrl.startsWith("http") ? displayNode.imageUrl : `http://localhost:5000${displayNode.imageUrl}`}
+              alt={displayNode.name}
+              style={{ width: 50, height: 50, borderRadius: 8, objectFit: "cover", marginBottom: 12 }}
+            />
+          )}
+
+          {displayNode && (
+            <div style={{ marginBottom: 12 }}>
+              {displayNode.price && <p style={{ color: "#059669", fontWeight: 600, margin: 0 }}>₹ {displayNode.vendorPrice ?? displayNode.price ?? "-"}</p>}
+              {displayNode.terms && (
+                <ul style={{ marginTop: 4, paddingLeft: 18 }}>
+                  {displayNode.terms.split(",").map((t, i) => (
+                    <li key={i} style={{ fontSize: 13, color: "#4b5563" }}>
+                      {t.trim()}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {/* Parent Buttons */}
+          {node.children?.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+              {node.children.map((opt) => {
+                const leaf = getDeepestFirstChild(opt);
+                const isSelectedParent = selectedParent?.id === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => {
+                      onSelectionChange?.(opt, leaf);
+                      onLeafSelect?.(leaf);
+                    }}
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: 999,
+                      border: isSelectedParent ? "2px solid #059669" : "1px solid #d1d5db",
+                      background: isSelectedParent ? "#059669" : "#f9fafb",
+                      color: isSelectedParent ? "#fff" : "#111827",
+                      cursor: "pointer",
+                      fontSize: 13,
+                    }}
+                  >
+                    {opt.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Child Buttons */}
+          {selectedParent?.children?.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+              {selectedParent.children.map((child) => (
+                <button
+                  key={child.id}
+                  type="button"
+                  onClick={() => {
+                    onSelectionChange?.(selectedParent, child);
+                    onLeafSelect?.(child);
+                  }}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: 999,
+                    border: selectedChild?.id === child.id ? "2px solid #2563eb" : "1px solid #d1d5db",
+                    background: selectedChild?.id === child.id ? "#2563eb" : "#f9fafb",
+                    color: selectedChild?.id === child.id ? "#fff" : "#111827",
+                    cursor: "pointer",
+                    fontSize: 13,
+                  }}
+                >
+                  {child.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <button
+            onClick={() => alert(`Booking ${displayNode?.name}`)}
+            style={{
+              marginTop: "auto",
+              width: "100%",
+              padding: "10px 14px",
+              borderRadius: 28,
+              border: "none",
+              background: "rgb(245 158 11)",
+              color: "#111827",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            Book Now
+          </button>
+        </div>
+      </section>
+    );
+  };
+
+  // ----------------- Render tree -----------------
+  const renderTree = (root) => {
+  if (!root) return <p>No categories available</p>;
+  if (!Array.isArray(root.children) || root.children.length === 0)
+    return <p>No categories available</p>;
+
+
+    return root.children.map((lvl1) => {
+      const hasNested = lvl1.children?.some((c) => hasChildren(c));
+      if (hasNested) {
+        const visibleChildren = lvl1.children;
+        if (!visibleChildren || visibleChildren.length === 0) return null;
+
+        return (
+          <section key={lvl1.id} style={{ marginBottom: 28 }}>
+            <h2 style={{ margin: "0 0 12px", textTransform: "uppercase", fontSize: 18, fontWeight: 600 }}>{lvl1.name}</h2>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
+              {visibleChildren.map((child) => (
+                <ParentWithSizesCard
+                  key={child.id}
+                  node={child}
+                  selection={cardSelections[child.id]}
+                  onSelectionChange={(parent, leaf) =>
+                    setCardSelections((prev) => ({ ...prev, [child.id]: { parent, child: leaf } }))
+                  }
+                  onLeafSelect={(leaf) => setSelectedLeaf(leaf)}
+                />
+              ))}
+            </div>
+          </section>
+        );
+      }
+
+      return (
+        <div key={lvl1.id} style={{ display: "inline-flex", verticalAlign: "top", marginRight: 16, marginBottom: 28 }}>
+          <ParentWithSizesCard
+            node={lvl1}
+            selection={cardSelections[lvl1.id]}
+            onSelectionChange={(parent, leaf) =>
+              setCardSelections((prev) => ({ ...prev, [lvl1.id]: { parent, child: leaf } }))
+            }
+            onLeafSelect={(leaf) => setSelectedLeaf(leaf)}
+          />
+        </div>
+      );
+    });
+  };
 
   return (
     <div style={{ padding: 0, background: "#F0FDF4" }}>
@@ -323,13 +267,7 @@ const renderTree = (root) => {
         <FullPageShimmer />
       ) : (
         <>
-          <TopNavBar
-            businessName={vendor?.businessName || "Loading..."}
-            categoryTree={categoryTree}
-            selectedLeaf={selectedLeaf}
-            onLeafSelect={setSelectedLeaf}
-          />
-
+          <TopNavBar businessName={vendor?.businessName || "Loading..."} categoryTree={categoryTree} selectedLeaf={selectedLeaf} onLeafSelect={setSelectedLeaf} />
           <HomeSection businessName={vendor?.businessName || "Loading..."} />
           <main id="products" style={{ padding: "20px", marginTop: "10px" }}>
             {renderTree(categoryTree)}
@@ -337,21 +275,15 @@ const renderTree = (root) => {
           <BenefitsSection />
           <AboutSection />
           <ContactSection
-            contactNumber={
-              vendor?.customerId?.fullNumber || vendor?.phone || "-"
-            }
-            location={location} // Pass the fetched location state directly
+            contactNumber={vendor?.customerId?.fullNumber || vendor?.phone || "-"}
+            location={location}
             vendorId={vendorId}
+            businessHours={vendor?.businessHours || []}
             onLocationUpdate={(newLoc) => {
-              // When ContactSection updates location
-              setLocation(newLoc); // update local state
-              setVendor((prev) => ({
-                ...prev,
-                location: newLoc, // ✅ also update vendor.location
-              }));
+              setLocation(newLoc);
+              setVendor((prev) => ({ ...prev, location: newLoc }));
             }}
           />
-
           <Footer />
         </>
       )}

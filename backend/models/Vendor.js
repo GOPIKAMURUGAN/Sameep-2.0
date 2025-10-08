@@ -24,6 +24,14 @@ const vendorSchema = new mongoose.Schema({
     lng: { type: Number },
     address: { type: String }
   },
+
+ businessHours: [
+  {
+    day: { type: String, required: true },
+    hours: { type: String, required: true },
+  },
+],
+
   createdAt: { type: Date, default: Date.now },
 });
 

@@ -5,20 +5,16 @@ import dynamic from "next/dynamic";
 // dynamically import LocationPickerModal only on client
 const LocationPickerModal = dynamic(() => import("./LocationPickerModal"), { ssr: false });
 
-export default function ContactSection({ contactNumber, location, vendorId, onLocationUpdate }) {
+export default function ContactSection({
+  contactNumber,
+  location,
+  vendorId,
+  businessHours = [], // ✅ accept from parent
+  onLocationUpdate,
+}) {
   const [areaCity, setAreaCity] = useState("");
   const [isOpenNow, setIsOpenNow] = useState({ open: false, closes: "", nextOpen: "" });
   const [modalOpen, setModalOpen] = useState(false);
-
-  const businessHours = [
-    { day: "Sunday", hours: "Closed" },
-    { day: "Monday", hours: "8:00 AM - 8:00 PM" },
-    { day: "Tuesday", hours: "8:00 AM - 8:00 PM" },
-    { day: "Wednesday", hours: "8:00 AM - 8:00 PM" },
-    { day: "Thursday", hours: "8:00 AM - 8:00 PM" },
-    { day: "Friday", hours: "8:00 AM - 8:00 PM" },
-    { day: "Saturday", hours: "10:00 AM - 6:00 PM" },
-  ];
 
   const todayIndex = new Date().getDay();
 
@@ -35,7 +31,7 @@ export default function ContactSection({ contactNumber, location, vendorId, onLo
     for (let i = 1; i <= 7; i++) {
       const idx = (todayIndex + i) % 7;
       const nextDay = businessHours[idx];
-      if (nextDay.hours !== "Closed") return nextDay.hours.split(" - ")[0];
+      if (nextDay?.hours && nextDay.hours !== "Closed") return nextDay.hours.split(" - ")[0];
     }
     return "";
   };
@@ -43,21 +39,21 @@ export default function ContactSection({ contactNumber, location, vendorId, onLo
   const checkOpenStatus = () => {
     const now = new Date();
     const today = businessHours[todayIndex];
+    if (!today) return { open: false, closes: "", nextOpen: "" };
     if (today.hours === "Closed") return { open: false, closes: "", nextOpen: getNextOpenTime() };
+
     const [start, end] = today.hours.split(" - ").map((h) => h.trim());
     const nowHours = now.getHours() + now.getMinutes() / 60;
     const openStart = to24(start);
     const openEnd = to24(end);
+
     if (nowHours >= openStart && nowHours <= openEnd) return { open: true, closes: end, nextOpen: "" };
     return { open: false, closes: "", nextOpen: start };
   };
 
-  // sync area/city from latest location prop
+  // Sync area/city from location
   useEffect(() => {
-    if (!location) {
-      setAreaCity("");
-      return;
-    }
+    if (!location) return setAreaCity("");
 
     if (location.areaCity) {
       setAreaCity(location.areaCity);
@@ -83,14 +79,16 @@ export default function ContactSection({ contactNumber, location, vendorId, onLo
     }
   }, [location]);
 
+  // Update open status every minute
   useEffect(() => {
     setIsOpenNow(checkOpenStatus());
     const interval = setInterval(() => setIsOpenNow(checkOpenStatus()), 60000);
     return () => clearInterval(interval);
-  }, []);
+  }, [businessHours]);
 
   const handleSaveLocation = async (pos) => {
-    if (!pos || !pos.lat || !pos.lng) return;
+    if (!pos?.lat || !pos?.lng) return;
+
     try {
       const res = await fetch(`/api/vendors/${vendorId}/location`, {
         method: "PUT",
@@ -99,7 +97,7 @@ export default function ContactSection({ contactNumber, location, vendorId, onLo
       });
       const data = await res.json();
       if (data.success) {
-        onLocationUpdate?.(data.location); // ✅ tell parent to update
+        onLocationUpdate?.(data.location);
         setModalOpen(false);
       } else {
         alert("Failed to save location");
@@ -129,33 +127,17 @@ export default function ContactSection({ contactNumber, location, vendorId, onLo
       >
         <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
           {/* Phone */}
-          <div
-            style={{
-              padding: "20px",
-              border: "1px solid #ddd",
-              borderRadius: "10px",
-              background: "#F0FDF4",
-              boxShadow: "0 2px 6px rgba(0,0,0,0.1)",
-            }}
-          >
+          <div style={{ padding: "20px", border: "1px solid #ddd", borderRadius: "10px", background: "#F0FDF4", boxShadow: "0 2px 6px rgba(0,0,0,0.1)" }}>
             <h4 style={{ marginBottom: "10px", fontWeight: "bold" }}>Phone</h4>
             <p>{contactNumber || "-"}</p>
           </div>
 
           {/* Location */}
-          <div
-            style={{
-              padding: "20px",
-              border: "1px solid #ddd",
-              borderRadius: "10px",
-              background: "#F0FDF4",
-              boxShadow: "0 2px 6px rgba(0,0,0,0.1)",
-            }}
-          >
+          <div style={{ padding: "20px", border: "1px solid #ddd", borderRadius: "10px", background: "#F0FDF4", boxShadow: "0 2px 6px rgba(0,0,0,0.1)" }}>
             <h4 style={{ marginBottom: "10px", fontWeight: "bold" }}>Location</h4>
             {location ? (
               <>
-              {areaCity && <p>{areaCity}</p>}
+                {areaCity && <p>{areaCity}</p>}
                 <iframe
                   title="map"
                   width="100%"
@@ -170,15 +152,7 @@ export default function ContactSection({ contactNumber, location, vendorId, onLo
           </div>
 
           {/* Business Hours */}
-          <div
-            style={{
-              padding: "20px",
-              border: "1px solid #ddd",
-              borderRadius: "10px",
-              background: "#F0FDF4",
-              boxShadow: "0 2px 6px rgba(0,0,0,0.1)",
-            }}
-          >
+          <div style={{ padding: "20px", border: "1px solid #ddd", borderRadius: "10px", background: "#F0FDF4", boxShadow: "0 2px 6px rgba(0,0,0,0.1)" }}>
             <h4 style={{ marginBottom: "10px", fontWeight: "bold" }}>Business Hours</h4>
             <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
               {businessHours.map((item, idx) => (
@@ -198,85 +172,14 @@ export default function ContactSection({ contactNumber, location, vendorId, onLo
               ))}
             </ul>
           </div>
-
-          {/* Products */}
-          <div
-            style={{
-              padding: "20px",
-              border: "1px solid #ddd",
-              borderRadius: "10px",
-              background: "#F0FDF4",
-              boxShadow: "0 2px 6px rgba(0,0,0,0.1)",
-            }}
-          >
-            <h4 style={{ marginBottom: "10px", fontWeight: "bold" }}>Products</h4>
-            <p>Explore</p>
-          </div>
         </div>
 
         {/* Contact Form */}
-        <form
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "15px",
-            background: "#F0FDF4",
-            padding: "30px",
-            borderRadius: "12px",
-            boxShadow: "0 4px 10px rgba(0,0,0,0.1)",
-          }}
-        >
-          <input
-            type="text"
-            placeholder="Your Name"
-            required
-            style={{
-              padding: "12px",
-              border: "1px solid #ccc",
-              borderRadius: "8px",
-              backgroundColor: "#F0FDF4",
-            }}
-          />
-          <input
-            type="tel"
-            placeholder="Phone Number"
-            required
-            style={{
-              padding: "12px",
-              border: "1px solid #ccc",
-              borderRadius: "8px",
-              backgroundColor: "#F0FDF4",
-            }}
-          />
-          <textarea
-            placeholder="Message (Optional)"
-            rows="4"
-            style={{
-              padding: "12px",
-              border: "1px solid #ccc",
-              borderRadius: "8px",
-              resize: "none",
-              backgroundColor: "#F0FDF4",
-            }}
-          />
-          <button
-            type="submit"
-            style={{
-              padding: "12px",
-              backgroundColor: "#F59E0B",
-              color: "black",
-              border: "none",
-              borderRadius: "30px",
-              fontWeight: "bold",
-              cursor: "pointer",
-              marginTop: "10px",
-              width: "150px",
-              alignSelf: "flex-start",
-              fontFamily: "Poppins, sans-serif",
-            }}
-          >
-            Send Message
-          </button>
+        <form style={{ display: "flex", flexDirection: "column", gap: "15px", background: "#F0FDF4", padding: "30px", borderRadius: "12px", boxShadow: "0 4px 10px rgba(0,0,0,0.1)" }}>
+          <input type="text" placeholder="Your Name" required style={{ padding: "12px", border: "1px solid #ccc", borderRadius: "8px", backgroundColor: "#F0FDF4" }} />
+          <input type="tel" placeholder="Phone Number" required style={{ padding: "12px", border: "1px solid #ccc", borderRadius: "8px", backgroundColor: "#F0FDF4" }} />
+          <textarea placeholder="Message (Optional)" rows="4" style={{ padding: "12px", border: "1px solid #ccc", borderRadius: "8px", resize: "none", backgroundColor: "#F0FDF4" }} />
+          <button type="submit" style={{ padding: "12px", backgroundColor: "#F59E0B", color: "black", border: "none", borderRadius: "30px", fontWeight: "bold", cursor: "pointer", marginTop: "10px", width: "150px", alignSelf: "flex-start", fontFamily: "Poppins, sans-serif" }}>Send Message</button>
         </form>
       </div>
 

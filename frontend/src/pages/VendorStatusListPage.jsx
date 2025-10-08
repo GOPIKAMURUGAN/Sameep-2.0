@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { LocationPickerModal } from "../components/LocationPickerModal";
 import BusinessLocationModal from "../components/BusinessLocationModal";
+import BusinessHoursModal from "../components/BusinessHoursModal";
 
 // ---------------- Update Price Modal ----------------
 function UpdatePriceModal({ show, onClose, category, vendorId, onUpdated }) {
@@ -22,7 +23,9 @@ function UpdatePriceModal({ show, onClose, category, vendorId, onUpdated }) {
 
     try {
       await axios.put(
-        `http://localhost:5000/api/vendorPricing/${vendorId}/${category._id ?? category.id}`,
+        `http://localhost:5000/api/vendorPricing/${vendorId}/${
+          category._id ?? category.id
+        }`,
         { price: newPrice }
       );
 
@@ -35,23 +38,33 @@ function UpdatePriceModal({ show, onClose, category, vendorId, onUpdated }) {
   };
 
   return (
-    <div style={{
-      position: "fixed",
-      top: 0, left: 0, right: 0, bottom: 0,
-      backgroundColor: "rgba(0,0,0,0.5)",
-      display: "flex",
-      justifyContent: "center",
-      alignItems: "center",
-      zIndex: 1000,
-    }}>
-      <div style={{
-        background: "#fff",
-        padding: "20px",
-        borderRadius: "10px",
-        minWidth: "300px",
-      }}>
+    <div
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: "rgba(0,0,0,0.5)",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        zIndex: 1000,
+      }}
+    >
+      <div
+        style={{
+          background: "#fff",
+          padding: "20px",
+          borderRadius: "10px",
+          minWidth: "300px",
+        }}
+      >
         <h3>Update Price: {category.name}</h3>
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+        <form
+          onSubmit={handleSubmit}
+          style={{ display: "flex", flexDirection: "column", gap: "10px" }}
+        >
           <input
             type="number"
             step="0.01"
@@ -59,29 +72,45 @@ function UpdatePriceModal({ show, onClose, category, vendorId, onUpdated }) {
             onChange={(e) => setPrice(e.target.value)}
             placeholder="Vendor Price"
             required
-            style={{ padding: "8px", borderRadius: "6px", border: "1px solid #ccc" }}
+            style={{
+              padding: "8px",
+              borderRadius: "6px",
+              border: "1px solid #ccc",
+            }}
           />
-          <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
-            <button type="button" onClick={onClose} style={{
-              padding: "8px 16px",
-              borderRadius: "6px",
-              background: "#ccc",
-              border: "none",
-            }}>Cancel</button>
-            <button type="submit" style={{
-              padding: "8px 16px",
-              borderRadius: "6px",
-              background: "#00AEEF",
-              border: "none",
-              color: "#fff",
-            }}>Update</button>
+          <div
+            style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}
+          >
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                padding: "8px 16px",
+                borderRadius: "6px",
+                background: "#ccc",
+                border: "none",
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              style={{
+                padding: "8px 16px",
+                borderRadius: "6px",
+                background: "#00AEEF",
+                border: "none",
+                color: "#fff",
+              }}
+            >
+              Update
+            </button>
           </div>
         </form>
       </div>
     </div>
   );
 }
-
 
 // ---------------- Flatten Tree Helper ----------------
 function flattenTree(node, rows = [], parentLevels = []) {
@@ -113,7 +142,7 @@ export default function VendorStatusListPage() {
   const [selectedVendor, setSelectedVendor] = useState(null);
   const [tree, setTree] = useState([]);
   const [categoriesLoading, setCategoriesLoading] = useState(false);
-const [vendorCategoriesCache, setVendorCategoriesCache] = useState({});
+  const [vendorCategoriesCache, setVendorCategoriesCache] = useState({});
 
   const [modalCategory, setModalCategory] = useState(null);
   const [showBusinessModal, setShowBusinessModal] = useState(false);
@@ -133,6 +162,9 @@ const [vendorCategoriesCache, setVendorCategoriesCache] = useState({});
   const [vendorLocation, setVendorLocation] = useState(null);
   const [newNearby, setNewNearby] = useState("");
 
+  const [selectedVendorForBusinessHours, setSelectedVendorForBusinessHours] =
+    useState(null);
+
   const fetchVendors = async () => {
     if (!status || !categoryId) return;
     setLoading(true);
@@ -144,17 +176,33 @@ const [vendorCategoriesCache, setVendorCategoriesCache] = useState({});
         )}`
       );
       const vendorsData = Array.isArray(res.data) ? res.data : [];
-
       const vendorsWithLocation = await Promise.all(
         vendorsData.map(async (vendor) => {
           try {
-            const locRes = await axios.get(`http://localhost:5000/api/vendors/${vendor._id}/location`);
-            return { ...vendor, location: locRes.data.location };
+            const locRes = await axios.get(
+              `http://localhost:5000/api/vendors/${vendor._id}/location`
+            );
+
+            const locationData = locRes.data.location || {};
+            // ensure nearbyLocations exists
+            locationData.nearbyLocations = locationData.nearbyLocations || [
+              "",
+              "",
+              "",
+              "",
+              "",
+            ];
+
+            return { ...vendor, location: locationData };
           } catch (locError) {
-            return { ...vendor, location: null };
+            return {
+              ...vendor,
+              location: { nearbyLocations: ["", "", "", "", ""] },
+            };
           }
         })
       );
+
       setVendors(vendorsWithLocation);
     } catch (err) {
       console.error(err);
@@ -170,62 +218,63 @@ const [vendorCategoriesCache, setVendorCategoriesCache] = useState({});
   }, [status, categoryId]);
 
   const fetchVendorCategories = async (vendorId) => {
-  // If we already have this vendor’s categories, show them instantly
-  if (vendorCategoriesCache[vendorId]) {
-    setTree(vendorCategoriesCache[vendorId]);
-    return;
-  }
+    // If we already have this vendor’s categories, show them instantly
+    if (vendorCategoriesCache[vendorId]) {
+      setTree(vendorCategoriesCache[vendorId]);
+      return;
+    }
 
-  setCategoriesLoading(true); // show loading message
-  try {
-    const res = await axios.get(
-      `http://localhost:5000/api/vendors/${vendorId}/categories`
-    );
-    let categories = res.data.categories;
-    let treeData;
-    if (!categories) treeData = [];
-    else if (Array.isArray(categories))
-      treeData = [{ _id: "root", name: "Root", children: categories }];
-    else treeData = [{ ...categories, children: categories.children || [] }];
+    setCategoriesLoading(true); // show loading message
+    try {
+      const res = await axios.get(
+        `http://localhost:5000/api/vendors/${vendorId}/categories`
+      );
+      let categories = res.data.categories;
+      let treeData;
+      if (!categories) treeData = [];
+      else if (Array.isArray(categories))
+        treeData = [{ _id: "root", name: "Root", children: categories }];
+      else treeData = [{ ...categories, children: categories.children || [] }];
 
-    // Save (cache) this vendor’s data so next click is instant
-    setVendorCategoriesCache((prev) => ({ ...prev, [vendorId]: treeData }));
-    setTree(treeData);
-  } catch (err) {
-    console.error(err);
-    alert("Failed to fetch vendor categories");
-  } finally {
-    setCategoriesLoading(false);
-  }
-};
-// Preload categories in background after vendor list loads
-useEffect(() => {
-  if (vendors.length > 0) {
-    vendors.forEach((v) => {
-      // Skip if already cached
-      if (vendorCategoriesCache[v._id]) return;
+      // Save (cache) this vendor’s data so next click is instant
+      setVendorCategoriesCache((prev) => ({ ...prev, [vendorId]: treeData }));
+      setTree(treeData);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to fetch vendor categories");
+    } finally {
+      setCategoriesLoading(false);
+    }
+  };
+  // Preload categories in background after vendor list loads
+  useEffect(() => {
+    if (vendors.length > 0) {
+      vendors.forEach((v) => {
+        // Skip if already cached
+        if (vendorCategoriesCache[v._id]) return;
 
-      axios
-        .get(`http://localhost:5000/api/vendors/${v._id}/categories`)
-        .then((res) => {
-          let categories = res.data.categories;
-          let treeData;
-          if (!categories) treeData = [];
-          else if (Array.isArray(categories))
-            treeData = [{ _id: "root", name: "Root", children: categories }];
-          else treeData = [{ ...categories, children: categories.children || [] }];
+        axios
+          .get(`http://localhost:5000/api/vendors/${v._id}/categories`)
+          .then((res) => {
+            let categories = res.data.categories;
+            let treeData;
+            if (!categories) treeData = [];
+            else if (Array.isArray(categories))
+              treeData = [{ _id: "root", name: "Root", children: categories }];
+            else
+              treeData = [
+                { ...categories, children: categories.children || [] },
+              ];
 
-          setVendorCategoriesCache((prev) => ({
-            ...prev,
-            [v._id]: treeData,
-          }));
-        })
-        .catch(() => {});
-    });
-  }
-}, [vendors]);
-
-
+            setVendorCategoriesCache((prev) => ({
+              ...prev,
+              [v._id]: treeData,
+            }));
+          })
+          .catch(() => {});
+      });
+    }
+  }, [vendors]);
 
   const handleVendorClick = (vendor) => {
     setSelectedVendor(vendor);
@@ -249,41 +298,57 @@ useEffect(() => {
   // Callback for the new LocationPickerModal
   // This function is called when the modal successfully saves a location.
   const onLocationUpdate = (newLocation) => {
-  const vendorIdToUpdate = selectedVendorForLocation?._id;
-  if (!vendorIdToUpdate) return;
+    const vendorIdToUpdate = selectedVendorForLocation?._id;
+    if (!vendorIdToUpdate) return;
 
-  setVendors(currentVendors =>
-    currentVendors.map(v =>
-      v._id === vendorIdToUpdate ? { ...v, location: newLocation } : v
-    )
-  );
+    setVendors((currentVendors) =>
+      currentVendors.map((v) => {
+        if (v._id === vendorIdToUpdate) {
+          // Merge old nearbyLocations with new home location
+          const nearby = v.location?.nearbyLocations || [];
+          return {
+            ...v,
+            location: {
+              ...newLocation, // new lat, lng, area, city, etc
+              nearbyLocations: nearby, // preserve business locations
+            },
+          };
+        }
+        return v;
+      })
+    );
 
-  if (selectedVendor?._id === vendorIdToUpdate) {
-    setSelectedVendor(s => ({ ...s, location: newLocation }));
-  }
+    if (selectedVendor?._id === vendorIdToUpdate) {
+      const nearby = selectedVendor.location?.nearbyLocations || [];
+      setSelectedVendor({
+        ...selectedVendor,
+        location: {
+          ...newLocation,
+          nearbyLocations: nearby,
+        },
+      });
+    }
 
-  setSelectedVendorForLocation(null);
-  setShowLocationModal(false);
-};
-
+    setSelectedVendorForLocation(null);
+    setShowLocationModal(false);
+  };
 
   const handleBusinessLocationUpdate = (vendorId, nearbyLocations) => {
-  setVendors(prev =>
-    prev.map(v =>
-      v._id === vendorId
-        ? { ...v, location: { ...v.location, nearbyLocations } }
-        : v
-    )
-  );
+    setVendors((prev) =>
+      prev.map((v) =>
+        v._id === vendorId
+          ? { ...v, location: { ...v.location, nearbyLocations } }
+          : v
+      )
+    );
 
-  if (selectedVendor && selectedVendor._id === vendorId) {
-    setSelectedVendor(s => ({
-      ...s,
-      location: { ...s.location, nearbyLocations }
-    }));
-  }
-};
-
+    if (selectedVendor && selectedVendor._id === vendorId) {
+      setSelectedVendor((s) => ({
+        ...s,
+        location: { ...s.location, nearbyLocations },
+      }));
+    }
+  };
 
   const rows = tree.flatMap((root) => flattenTree(root));
   const maxLevels = rows.reduce(
@@ -326,19 +391,20 @@ useEffect(() => {
               </p>
               {/* Display the saved home location */}
               <p>
-  <b>Home Location: </b>
-  <span style={{ fontWeight: "bold", color: v.location ? "#28a745" : "#6c757d" }}>
-  {v.location
-    ? [v.location.area, v.location.city].filter(Boolean).join(", ")
-    : "Not Set"}
-</span>
-
-
-</p>
-
-
-
-
+                <b>Home Location: </b>
+                <span
+                  style={{
+                    fontWeight: "bold",
+                    color: v.location ? "#28a745" : "#6c757d",
+                  }}
+                >
+                  {v.location
+                    ? [v.location.area, v.location.city]
+                        .filter(Boolean)
+                        .join(", ")
+                    : "Not Set"}
+                </span>
+              </p>
 
               <button
                 onClick={() => handleVendorClick(v)}
@@ -388,26 +454,39 @@ useEffect(() => {
               >
                 Business Location
               </button>
+
+              <button
+                onClick={() => {
+                  setSelectedVendorForBusinessHours(v);
+                }}
+                style={{
+                  marginLeft: 10,
+                  padding: "4px 8px",
+                  borderRadius: "4px",
+                  background: "purple",
+                  color: "#fff",
+                  border: "none",
+                }}
+              >
+                Business Hours
+              </button>
               {/* Display non-empty business locations */}
               {/* Business Location Section */}
-<p>
-  <b>Business Locations: </b>
-  {v.location?.nearbyLocations?.filter(loc => loc?.trim()).length > 0 ? (
-    <ul style={{ paddingLeft: 16, margin: 4 }}>
-      {v.location.nearbyLocations
-        .filter(loc => loc?.trim())
-        .map((loc, idx) => (
-          <li key={idx}>{loc}</li>
-        ))}
-    </ul>
-  ) : (
-    <span style={{ color: "#6c757d" }}>Not Set</span>
-  )}
-</p>
-
-
-
-
+              <p>
+                <b>Business Locations: </b>
+                {v.location?.nearbyLocations?.filter((loc) => loc?.trim())
+                  .length > 0 ? (
+                  <ul style={{ paddingLeft: 16, margin: 4 }}>
+                    {v.location.nearbyLocations
+                      .filter((loc) => loc?.trim())
+                      .map((loc, idx) => (
+                        <li key={idx}>{loc}</li>
+                      ))}
+                  </ul>
+                ) : (
+                  <span style={{ color: "#6c757d" }}>Not Set</span>
+                )}
+              </p>
             </li>
           ))}
         </ul>
@@ -419,40 +498,42 @@ useEffect(() => {
 
           {/* Preview button */}
           <button
-            onClick={() => {
-              if (rows[0]) {
-                const categoryIdForPreview = rows[0].categoryId;
-                const homeLocs = selectedVendor.businessLocations?.filter(Boolean) || [];
+  onClick={() => {
+    if (rows[0]) {
+      const categoryIdForPreview = rows[0].categoryId; // use first category
+      const homeLocs =
+        selectedVendor.businessLocations?.filter(Boolean) || [];
 
-                window.open(
-                  // The preview page will fetch the latest location on its own.
-                  // We only pass business locations which are not the primary 'home' location.
-                  `http://localhost:3000/preview/${selectedVendor._id}/${categoryIdForPreview}?homeLocs=${encodeURIComponent(JSON.stringify(homeLocs))}`,
-                  "_blank"
-                );
-              } else {
-                alert("No category available for preview");
-              }
-            }}
-            style={{
-              position: "absolute",
-              right: 0,
-              top: 0,
-              padding: "6px 12px",
-              borderRadius: 6,
-              background: "#2563EB",
-              color: "#fff",
-              border: "none",
-              cursor: "pointer",
-            }}
-          >
-            Preview
-          </button>
+      window.open(
+        `http://localhost:3000/preview/${selectedVendor._id}/${categoryIdForPreview}?homeLocs=${encodeURIComponent(
+          JSON.stringify(homeLocs)
+        )}&t=${Date.now()}`, // timestamp avoids cache
+        "_blank"
+      );
+    } else {
+      alert("No category available for preview");
+    }
+  }}
+  style={{
+    position: "absolute",
+    right: 0,
+    top: 0,
+    padding: "6px 12px",
+    borderRadius: 6,
+    background: "#2563EB",
+    color: "#fff",
+    border: "none",
+    cursor: "pointer",
+  }}
+>
+  Preview
+</button>
+
 
           {categoriesLoading ? (
-  <p>Loading categories...</p>
-) : rows.length === 0 ? (
-  <p>No categories found</p>
+            <p>Loading categories...</p>
+          ) : rows.length === 0 ? (
+            <p>No categories found</p>
           ) : (
             <table style={{ borderCollapse: "collapse", width: "100%" }}>
               <thead>
@@ -531,17 +612,28 @@ useEffect(() => {
       />
 
       <BusinessLocationModal
-  show={showBusinessLocationModal}
-  onClose={() => {
-    setShowBusinessLocationModal(false);
-    setSelectedVendorForBusiness(null);
-  }}
-  vendorId={selectedVendorForBusiness?._id}
-  onUpdate={handleBusinessLocationUpdate}
-  initialNearby={selectedVendorForBusiness?.location?.nearbyLocations || ["", "", "", "", ""]}
-/>
+        show={showBusinessLocationModal}
+        onClose={() => {
+          setShowBusinessLocationModal(false);
+          setSelectedVendorForBusiness(null);
+        }}
+        vendorId={selectedVendorForBusiness?._id}
+        onUpdate={handleBusinessLocationUpdate}
+      />
 
-
+      {selectedVendorForBusinessHours && (
+        <BusinessHoursModal
+          vendor={selectedVendorForBusinessHours}
+          onClose={() => setSelectedVendorForBusinessHours(null)}
+          onUpdated={(updatedVendor) => {
+            setVendors((prev) =>
+              prev.map((v) => (v._id === updatedVendor._id ? updatedVendor : v))
+            );
+            if (selectedVendor?._id === updatedVendor._id)
+              setSelectedVendor(updatedVendor);
+          }}
+        />
+      )}
     </div>
   );
 }
